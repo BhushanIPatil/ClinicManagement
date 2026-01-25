@@ -10,3 +10,5 @@ export {
 } from './card'
 export { Input } from './input'
 export type { InputProps } from './input'
+export { SearchableSelect } from './searchable-select'
+export type { SearchableSelectOption } from './searchable-select'

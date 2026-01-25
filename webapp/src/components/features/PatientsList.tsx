@@ -1,7 +1,7 @@
 /**
  * Patients List Component
- * 
- * Displays a list of patients with consistent UI.
+ *
+ * Displays a list of patients. When patients/loading/error are passed, uses those; otherwise fetches via usePatients.
  */
 
 import { User, Phone, Mail, Calendar } from 'lucide-react'
@@ -12,10 +12,19 @@ import type { Patient } from '@/types/patient.types'
 
 interface PatientsListProps {
   className?: string
+  /** When provided, use these instead of fetching (e.g. from parent page that also has Add Patient). */
+  patients?: Patient[]
+  loading?: boolean
+  error?: string | null
 }
 
-export function PatientsList({ className }: PatientsListProps) {
-  const { patients, loading, error } = usePatients()
+export function PatientsList({ className, patients: propsPatients, loading: propsLoading, error: propsError }: PatientsListProps) {
+  const fromHook = usePatients({
+    autoFetch: propsPatients === undefined && propsLoading === undefined && propsError === undefined,
+  })
+  const patients = propsPatients ?? fromHook.patients
+  const loading = propsLoading ?? fromHook.loading
+  const error = propsError ?? fromHook.error
 
   const formatDate = (dateString?: string | null) => {
     if (dateString == null || dateString === '') return '–'
@@ -65,7 +74,7 @@ export function PatientsList({ className }: PatientsListProps) {
       render: (item) => (
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4 text-muted-foreground" />
-          <span>{getAge(item.date_of_birth)} years</span>
+          <span>{getAge(item.date_of_birth)}</span>
         </div>
       ),
     },

@@ -23,10 +23,10 @@ export interface Patient {
 export type Gender = 'MALE' | 'FEMALE' | 'OTHER'
 
 export interface PatientCreateRequest {
-  patient_number: string
+  patient_number?: string
   first_name: string
   last_name: string
-  date_of_birth: string
+  date_of_birth?: string
   gender: Gender
   email?: string
   phone?: string

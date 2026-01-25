@@ -18,6 +18,8 @@ export interface User {
   /** Set by backend on login for users with a clinic (e.g. CLINIC_ADMIN). Used when adding employees. */
   primary_clinic_id?: string | null
   primary_clinic_name?: string | null
+  /** Set when user has a linked Doctor record (e.g. DOCTOR role). Used for "my schedule" in work queue. */
+  doctor_id?: string | null
 }
 
 export interface Tokens {

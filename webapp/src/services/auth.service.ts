@@ -36,6 +36,7 @@ function normalizeUser(apiUser: Record<string, unknown> & { roles?: string[] }):
     updated_at: (apiUser.updated_at as string) ?? new Date().toISOString(),
     primary_clinic_id: (apiUser.primary_clinic_id as string | null | undefined) ?? null,
     primary_clinic_name: (apiUser.primary_clinic_name as string | null | undefined) ?? null,
+    doctor_id: (apiUser.doctor_id as string | null | undefined) ?? null,
   } as User
 }
 
