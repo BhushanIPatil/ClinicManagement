@@ -116,6 +116,20 @@ app.include_router(
     prefix="/api/v1",
 )
 
+# Patients (add before setting up appointments)
+from app.api.v1.endpoints import patients
+app.include_router(
+    patients.router,
+    prefix="/api/v1",
+)
+
+# Doctors by clinic (use primary_clinic_id from login/cookies for appointment dropdown etc.)
+from app.api.v1.endpoints import doctors
+app.include_router(
+    doctors.router,
+    prefix="/api/v1",
+)
+
 # Work queue routes
 from app.api.v1.endpoints import work_queue
 app.include_router(

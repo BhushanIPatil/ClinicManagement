@@ -10,6 +10,7 @@ import Unauthorized from './pages/Unauthorized'
 import SuperAdminClinics from './pages/SuperAdminClinics'
 import SuperAdminOnboard from './pages/SuperAdminOnboard'
 import AppointmentsPage from './pages/AppointmentsPage'
+import PatientsPage from './pages/PatientsPage'
 import WorkQueuePage from './pages/WorkQueuePage'
 import PlaceholderPage from './pages/PlaceholderPage'
 import UsersPage from './pages/UsersPage'
@@ -79,47 +80,60 @@ function App() {
               }
             />
 
-            {/* Appointments & Work Queue (CLINIC_ADMIN, RECEPTIONIST) */}
+            {/* Patients: add before setting up appointments */}
+            <Route
+              path="/patients"
+              element={
+                <RoleRoute requiredRoles={['CLINIC_ADMIN', 'RECEPTIONIST', 'DOCTOR', 'NURSE']}>
+                  <AppLayout>
+                    <PatientsPage />
+                  </AppLayout>
+                </RoleRoute>
+              }
+            />
+            {/* Appointments: CLINIC_ADMIN, RECEPTIONIST, DOCTOR (add & manage); doctor dropdown shows clinic doctors */}
             <Route
               path="/appointments"
               element={
-                <ProtectedRoute>
+                <RoleRoute requiredRoles={['CLINIC_ADMIN', 'RECEPTIONIST', 'DOCTOR']}>
                   <AppLayout>
                     <AppointmentsPage />
                   </AppLayout>
-                </ProtectedRoute>
+                </RoleRoute>
               }
             />
+            {/* Work Queue: CLINIC_ADMIN, RECEPTIONIST, DOCTOR (my schedule + status/fees), NURSE (patient status) */}
             <Route
               path="/work-queue"
               element={
-                <ProtectedRoute>
+                <RoleRoute requiredRoles={['CLINIC_ADMIN', 'RECEPTIONIST', 'DOCTOR', 'NURSE']}>
                   <AppLayout>
                     <WorkQueuePage />
                   </AppLayout>
-                </ProtectedRoute>
+                </RoleRoute>
               }
             />
 
-            {/* Payroll, Finance, KPI, Users – placeholders; protect by role in backend */}
+            {/* Payroll: CLINIC_ADMIN, HR_OPERATIONS, DOCTOR */}
             <Route
               path="/payroll"
               element={
-                <ProtectedRoute>
+                <RoleRoute requiredRoles={['CLINIC_ADMIN', 'HR_OPERATIONS', 'DOCTOR']}>
                   <AppLayout>
                     <PlaceholderPage />
                   </AppLayout>
-                </ProtectedRoute>
+                </RoleRoute>
               }
             />
+            {/* Finance: CLINIC_ADMIN, HR_OPERATIONS, DOCTOR, NURSE, RECEPTIONIST (small clinics) */}
             <Route
               path="/finance"
               element={
-                <ProtectedRoute>
+                <RoleRoute requiredRoles={['CLINIC_ADMIN', 'HR_OPERATIONS', 'DOCTOR', 'NURSE', 'RECEPTIONIST']}>
                   <AppLayout>
                     <PlaceholderPage />
                   </AppLayout>
-                </ProtectedRoute>
+                </RoleRoute>
               }
             />
             <Route

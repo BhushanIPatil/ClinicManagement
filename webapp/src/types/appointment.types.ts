@@ -19,11 +19,16 @@ export interface Appointment {
   department_name?: string
   created_at?: string
   updated_at?: string
+  /** Present when fetched from GET /appointments/my-schedule */
+  fees_paid?: boolean
+  /** Present in list: whether this appointment has been paid (patient payment recorded). */
+  paid?: boolean
 }
 
 export type AppointmentStatus =
   | 'SCHEDULED'
   | 'CONFIRMED'
+  | 'IN_PROGRESS'
   | 'COMPLETED'
   | 'CANCELLED'
   | 'NO_SHOW'
@@ -39,12 +44,38 @@ export type AppointmentType =
 export interface BookAppointmentRequest {
   patient_id: string
   doctor_id: string
-  department_id: string
+  department_id?: string
   appointment_date: string
   duration_minutes?: number
   appointment_type?: AppointmentType
   reason?: string
   notes?: string
+}
+
+export interface UpdateAppointmentRequest {
+  appointment_date?: string
+  duration_minutes?: number
+  status?: AppointmentStatus
+  appointment_type?: AppointmentType
+  reason?: string
+  notes?: string
+  doctor_id?: string
+  department_id?: string
+}
+
+export interface DoctorOption {
+  id: string
+  first_name: string
+  last_name: string
+  label: string
+}
+
+export interface PatientOption {
+  id: string
+  first_name: string
+  last_name: string
+  patient_number?: string
+  label: string
 }
 
 export interface RescheduleAppointmentRequest {

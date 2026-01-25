@@ -168,12 +168,13 @@ export class ApiService {
   }
 
   /**
-   * DELETE request
+   * DELETE request. Optional body for endpoints that accept it (e.g. cancel with reason).
    */
-  async delete<T>(endpoint: string, includeAuth = true): Promise<T> {
+  async delete<T>(endpoint: string, data?: unknown, includeAuth = true): Promise<T> {
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'DELETE',
       headers: this.getHeaders(includeAuth),
+      body: data != null ? JSON.stringify(data) : undefined,
     })
 
     return this.handleResponse<T>(response)

@@ -6,7 +6,12 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { appointmentService } from '@/services/appointment.service'
-import type { Appointment, BookAppointmentRequest } from '@/types/appointment.types'
+import type {
+  Appointment,
+  BookAppointmentRequest,
+  UpdateAppointmentRequest,
+  CancelAppointmentRequest,
+} from '@/types/appointment.types'
 
 interface UseAppointmentsOptions {
   patientId?: string
@@ -55,6 +60,46 @@ export function useAppointments(options: UseAppointmentsOptions = {}) {
     []
   )
 
+  const updateAppointment = useCallback(
+    async (id: string, data: UpdateAppointmentRequest) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const updated = await appointmentService.updateAppointment(id, data)
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === id ? updated : a))
+        )
+        return updated
+      } catch (err: any) {
+        setError(err?.detail || 'Failed to update appointment')
+        throw err
+      } finally {
+        setLoading(false)
+      }
+    },
+    []
+  )
+
+  const cancelAppointment = useCallback(
+    async (id: string, data?: CancelAppointmentRequest) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const updated = await appointmentService.cancelAppointment(id, data)
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === id ? updated : a))
+        )
+        return updated
+      } catch (err: any) {
+        setError(err?.detail || 'Failed to cancel appointment')
+        throw err
+      } finally {
+        setLoading(false)
+      }
+    },
+    []
+  )
+
   useEffect(() => {
     if (autoFetch) {
       fetchAppointments()
@@ -67,5 +112,7 @@ export function useAppointments(options: UseAppointmentsOptions = {}) {
     error,
     fetchAppointments,
     bookAppointment,
+    updateAppointment,
+    cancelAppointment,
   }
 }

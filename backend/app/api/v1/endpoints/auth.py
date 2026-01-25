@@ -54,6 +54,17 @@ def _primary_clinic_from_user(user: Any) -> tuple[Optional[str], Optional[str]]:
     return (None, None)
 
 
+def _doctor_id_for_user(user_id: Any) -> Optional[str]:
+    """Return doctor_id for the given user_id if they have a linked Doctor record."""
+    from app.infrastructure.database.models import Doctor
+    db = db_manager.get_session()
+    try:
+        d = db.query(Doctor).filter(Doctor.user_id == user_id, Doctor.is_deleted == False).first()
+        return str(d.id) if d else None
+    finally:
+        db.close()
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreateRequest) -> Any:
     """
@@ -145,6 +156,7 @@ async def login(login_data: LoginRequest) -> Any:
     clinic_roles = [a.role.name for a in (getattr(user, "clinic_role_assignments") or []) if getattr(a, "role", None)]
     all_roles = list(dict.fromkeys(clinic_roles))
     primary_clinic_id, primary_clinic_name = _primary_clinic_from_user(user)
+    doctor_id = await asyncio.to_thread(_doctor_id_for_user, user.id)
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -160,6 +172,7 @@ async def login(login_data: LoginRequest) -> Any:
             "roles": all_roles,
             "primary_clinic_id": primary_clinic_id,
             "primary_clinic_name": primary_clinic_name,
+            "doctor_id": doctor_id,
         }
     }
 
@@ -202,6 +215,7 @@ async def login_json(login_data: LoginRequest) -> Any:
     clinic_roles = [a.role.name for a in (getattr(user, "clinic_role_assignments") or []) if getattr(a, "role", None)]
     all_roles = list(dict.fromkeys(clinic_roles))
     primary_clinic_id, primary_clinic_name = _primary_clinic_from_user(user)
+    doctor_id = await asyncio.to_thread(_doctor_id_for_user, user.id)
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -217,6 +231,7 @@ async def login_json(login_data: LoginRequest) -> Any:
             "roles": all_roles,
             "primary_clinic_id": primary_clinic_id,
             "primary_clinic_name": primary_clinic_name,
+            "doctor_id": doctor_id,
         }
     }
 
