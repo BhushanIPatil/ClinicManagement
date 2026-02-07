@@ -4,9 +4,10 @@
  * Displays a list of appointments with consistent UI.
  */
 
+import { useState, useMemo } from 'react'
 import { Calendar, Clock, User, Stethoscope } from 'lucide-react'
 import { useAppointments } from '@/hooks/useAppointments'
-import { DataTable, Column, LoadingSpinner, ErrorMessage, EmptyState } from '@/components/common'
+import { DataTable, Column, LoadingSpinner, ErrorMessage, PaginationState } from '@/components/common'
 import { glassmorphism } from '@/lib/glassmorphism'
 import { cn } from '@/lib/utils'
 import type { Appointment } from '@/types/appointment.types'
@@ -17,6 +18,8 @@ interface AppointmentsListProps {
   className?: string
 }
 
+const DEFAULT_PAGE_SIZE = 10
+
 export function AppointmentsList({
   patientId,
   doctorId,
@@ -26,6 +29,22 @@ export function AppointmentsList({
     patientId,
     doctorId,
   })
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const list = Array.isArray(appointments) ? appointments : []
+  const total = list.length
+  const pagination: PaginationState = useMemo(
+    () => ({ page, pageSize, total }),
+    [page, pageSize, total]
+  )
+  const paginatedData = useMemo(
+    () => list.slice((page - 1) * pageSize, page * pageSize),
+    [list, page, pageSize]
+  )
+  const onPageChange = (p: number, ps: number) => {
+    setPage(p)
+    setPageSize(ps)
+  }
 
   const formatDate = (dateString?: string | null) => {
     if (dateString == null || dateString === '') return '–'
@@ -117,7 +136,7 @@ export function AppointmentsList({
 
   if (loading) {
     return (
-      <div className={cn(glassmorphism('dark', true, true), 'rounded-lg p-8', className)}>
+      <div className={cn(glassmorphism('dark', false, false), 'rounded-lg p-8', className)}>
         <LoadingSpinner text="Loading appointments..." />
       </div>
     )
@@ -135,9 +154,11 @@ export function AppointmentsList({
     <div className={cn(className)}>
       <DataTable
         columns={columns}
-        data={Array.isArray(appointments) ? appointments : []}
+        data={paginatedData}
         keyExtractor={(item) => item.id}
         emptyMessage="No appointments found"
+        pagination={pagination}
+        onPageChange={onPageChange}
       />
     </div>
   )

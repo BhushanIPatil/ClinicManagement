@@ -26,3 +26,6 @@ class SalaryStructure(BaseModel):
     
     # Foreign Keys (employees table dropped; employee_id kept as plain column for legacy data)
     employee_id = Column(UNIQUEIDENTIFIER, nullable=True)
+    user_id = Column(UNIQUEIDENTIFIER, ForeignKey("users.id"), nullable=True, index=True)
+
+    user = relationship("User", foreign_keys=[user_id])

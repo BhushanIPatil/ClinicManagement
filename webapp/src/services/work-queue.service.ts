@@ -29,7 +29,8 @@ class WorkQueueService {
   }
 
   /**
-   * List work queue items. API returns { items, total, skip, limit }; this returns items, or [] when missing.
+   * List work queue items for current user's clinic. API returns { items, total, skip, limit }.
+   * future_only: only items due in future and not completed/cancelled.
    */
   async listItems(params?: {
     status?: string
@@ -37,6 +38,7 @@ class WorkQueueService {
     entity_type?: string
     skip?: number
     limit?: number
+    future_only?: boolean
   }): Promise<WorkQueueItem[]> {
     const queryParams = new URLSearchParams()
     if (params?.status) queryParams.append('status', params.status)
@@ -44,6 +46,7 @@ class WorkQueueService {
     if (params?.entity_type) queryParams.append('entity_type', params.entity_type)
     if (params?.skip != null) queryParams.append('skip', String(params.skip))
     if (params?.limit != null) queryParams.append('limit', String(params.limit))
+    if (params?.future_only === true) queryParams.append('future_only', 'true')
 
     const query = queryParams.toString()
     const res = await apiService.get<{ items?: WorkQueueItem[]; total?: number }>(

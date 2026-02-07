@@ -162,6 +162,14 @@ class AppointmentService {
     return Array.isArray(res?.items) ? res.items : []
   }
 
+  /** Upcoming (future) appointments for current user's clinic. For work queue. */
+  async getUpcomingAppointments(limit = 100): Promise<Appointment[]> {
+    const res = await apiService.get<{ items?: Appointment[] }>(
+      `/appointments/upcoming?limit=${limit}`
+    )
+    return Array.isArray(res?.items) ? res.items : []
+  }
+
   /**
    * Get doctor availability
    */

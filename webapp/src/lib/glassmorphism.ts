@@ -4,11 +4,11 @@ import { cn } from './utils'
  * Glassmorphism utility classes
  */
 export const glassStyles = {
-  base: 'backdrop-blur-xl bg-opacity-10 border border-white/20',
-  light: 'bg-white/10',
-  dark: 'bg-black/10',
-  hover: 'hover:bg-opacity-20 hover:border-white/30 transition-all duration-300',
-  glow: 'shadow-[0_8px_32px_0_rgba(31,38,135,0.37)]',
+  base: 'backdrop-blur-sm bg-opacity-5 border border-slate-700/40',
+  light: 'bg-white/5',
+  dark: 'bg-slate-900/60',
+  hover: 'hover:bg-opacity-10 hover:border-slate-600/50 transition-all duration-200',
+  glow: '',
 }
 
 /**

@@ -36,7 +36,7 @@ from app.infrastructure.database.models.doctor import Doctor
 from app.infrastructure.database.models.patient import Patient
 from app.infrastructure.database.models.appointment import Appointment
 from app.infrastructure.database.models.work_queue import WorkQueue
-from app.infrastructure.database.models.invoice import Invoice, InvoiceItem
+from app.infrastructure.database.models.user_task import UserTask
 from app.infrastructure.database.models.payment import Payment
 from app.infrastructure.database.models.insurance import Insurance
 from app.infrastructure.database.models.financial_transaction import FinancialTransaction

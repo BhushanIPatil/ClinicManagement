@@ -4,9 +4,10 @@
  * Displays a list of patients. When patients/loading/error are passed, uses those; otherwise fetches via usePatients.
  */
 
+import { useState, useMemo } from 'react'
 import { User, Phone, Mail, Calendar } from 'lucide-react'
 import { usePatients } from '@/hooks/usePatients'
-import { DataTable, Column, LoadingSpinner, ErrorMessage } from '@/components/common'
+import { DataTable, Column, LoadingSpinner, ErrorMessage, PaginationState } from '@/components/common'
 import { cn } from '@/lib/utils'
 import type { Patient } from '@/types/patient.types'
 
@@ -18,6 +19,8 @@ interface PatientsListProps {
   error?: string | null
 }
 
+const DEFAULT_PAGE_SIZE = 10
+
 export function PatientsList({ className, patients: propsPatients, loading: propsLoading, error: propsError }: PatientsListProps) {
   const fromHook = usePatients({
     autoFetch: propsPatients === undefined && propsLoading === undefined && propsError === undefined,
@@ -25,6 +28,22 @@ export function PatientsList({ className, patients: propsPatients, loading: prop
   const patients = propsPatients ?? fromHook.patients
   const loading = propsLoading ?? fromHook.loading
   const error = propsError ?? fromHook.error
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const list = Array.isArray(patients) ? patients : []
+  const total = list.length
+  const pagination: PaginationState = useMemo(
+    () => ({ page, pageSize, total }),
+    [page, pageSize, total]
+  )
+  const paginatedData = useMemo(
+    () => list.slice((page - 1) * pageSize, page * pageSize),
+    [list, page, pageSize]
+  )
+  const onPageChange = (p: number, ps: number) => {
+    setPage(p)
+    setPageSize(ps)
+  }
 
   const formatDate = (dateString?: string | null) => {
     if (dateString == null || dateString === '') return '–'
@@ -139,9 +158,11 @@ export function PatientsList({ className, patients: propsPatients, loading: prop
     <div className={cn(className)}>
       <DataTable
         columns={columns}
-        data={Array.isArray(patients) ? patients : []}
+        data={paginatedData}
         keyExtractor={(item) => item.id}
         emptyMessage="No patients found"
+        pagination={pagination}
+        onPageChange={onPageChange}
       />
     </div>
   )

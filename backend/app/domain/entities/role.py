@@ -17,6 +17,7 @@ from uuid import UUID
 
 
 # Canonical role names (must match rows in roles table)
+# While creating the database add this roles manually in the master table roles
 class RoleName:
     """Standard role identifiers."""
     # Global (no clinic): platform super admin

@@ -17,12 +17,12 @@ from sqlalchemy import or_
 
 from app.core.database import db_manager
 from app.core.security.jwt import verify_token
+from app.api.v1.deps import get_current_user_context, CurrentUserContext
 from app.infrastructure.database.models import (
     Appointment,
     Patient,
     Doctor,
     Department,
-    Invoice,
     Payment,
     Role,
     User,
@@ -167,19 +167,18 @@ async def list_appointments(
         app_ids = [a.id for a in rows]
         paid_app_ids = set()
         if app_ids:
-            inv_rows = (
-                db.query(Invoice.appointment_id)
+            pay_rows = (
+                db.query(Payment.appointment_id)
                 .filter(
-                    Invoice.is_deleted == False,
-                    Invoice.appointment_id.in_(app_ids),
-                    or_(
-                        Invoice.status == "PAID",
-                        Invoice.paid_amount >= Invoice.total_amount,
-                    ),
+                    Payment.is_deleted == False,
+                    Payment.payment_type == "PATIENT_PAYMENT",
+                    Payment.appointment_id.in_(app_ids),
+                    Payment.status == "COMPLETED",
                 )
+                .distinct()
                 .all()
             )
-            paid_app_ids = {r[0] for r in inv_rows if r[0]}
+            paid_app_ids = {r[0] for r in pay_rows if r[0]}
 
         items = []
         for a in rows:
@@ -366,19 +365,77 @@ async def get_my_schedule(
         app_ids = [a.id for a in rows]
         paid_app_ids = set()
         if app_ids:
-            inv_rows = (
-                db.query(Invoice.appointment_id)
+            pay_rows = (
+                db.query(Payment.appointment_id)
                 .filter(
-                    Invoice.is_deleted == False,
-                    Invoice.appointment_id.in_(app_ids),
-                    or_(
-                        Invoice.status == "PAID",
-                        Invoice.paid_amount >= Invoice.total_amount,
-                    ),
+                    Payment.is_deleted == False,
+                    Payment.payment_type == "PATIENT_PAYMENT",
+                    Payment.appointment_id.in_(app_ids),
+                    Payment.status == "COMPLETED",
                 )
+                .distinct()
                 .all()
             )
-            paid_app_ids = {r[0] for r in inv_rows if r[0]}
+            paid_app_ids = {r[0] for r in pay_rows if r[0]}
+        items = []
+        for a in rows:
+            out = _item_from(a)
+            out["fees_paid"] = a.id in paid_app_ids
+            items.append(out)
+        return {"items": items, "total": len(items)}
+    finally:
+        db.close()
+
+
+@router.get("/upcoming")
+async def get_upcoming_appointments(
+    ctx: CurrentUserContext = Depends(get_current_user_context),
+    limit: int = Query(100, ge=1, le=200),
+) -> Any:
+    """Future appointments for the current user's clinic (for work queue). Today and future; not cancelled."""
+    if not ctx.primary_clinic_id:
+        return {"items": [], "total": 0}
+    try:
+        clinic_uuid = UUID(ctx.primary_clinic_id)
+    except ValueError:
+        return {"items": [], "total": 0}
+    db = db_manager.get_session()
+    try:
+        now = datetime.now(timezone.utc)
+        rows = (
+            db.query(Appointment)
+            .options(
+                joinedload(Appointment.patient),
+                joinedload(Appointment.doctor),
+                joinedload(Appointment.department),
+            )
+            .join(Doctor, Appointment.doctor_id == Doctor.id)
+            .filter(
+                Appointment.is_deleted == False,
+                Doctor.clinic_id == clinic_uuid,
+                Doctor.is_deleted == False,
+                Appointment.appointment_date >= now,
+                Appointment.status != "CANCELLED",
+            )
+            .order_by(Appointment.appointment_date.asc())
+            .limit(limit)
+            .all()
+        )
+        app_ids = [a.id for a in rows]
+        paid_app_ids = set()
+        if app_ids:
+            pay_rows = (
+                db.query(Payment.appointment_id)
+                .filter(
+                    Payment.is_deleted == False,
+                    Payment.payment_type == "PATIENT_PAYMENT",
+                    Payment.appointment_id.in_(app_ids),
+                    Payment.status == "COMPLETED",
+                )
+                .distinct()
+                .all()
+            )
+            paid_app_ids = {r[0] for r in pay_rows if r[0]}
         items = []
         for a in rows:
             out = _item_from(a)
@@ -417,7 +474,7 @@ async def get_appointment(appointment_id: str) -> Any:
 
 @router.post("/{appointment_id}/payments", status_code=status.HTTP_201_CREATED)
 async def add_patient_payment(appointment_id: str, body: PatientPaymentRequest) -> Any:
-    """Add a patient payment for an appointment. Uses the payments table (Patient Payments). If no invoice exists for this appointment, one is created. Returns the created payment."""
+    """Add a patient payment for an appointment. Stored in payments table with payment_type=PATIENT_PAYMENT."""
     try:
         aid = UUID(appointment_id)
     except ValueError:
@@ -426,52 +483,28 @@ async def add_patient_payment(appointment_id: str, body: PatientPaymentRequest) 
     try:
         a = (
             db.query(Appointment)
-            .options(joinedload(Appointment.patient))
+            .options(joinedload(Appointment.patient), joinedload(Appointment.doctor))
             .filter(Appointment.id == aid, Appointment.is_deleted == False)
             .first()
         )
         if not a:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found")
-        inv = (
-            db.query(Invoice)
-            .filter(Invoice.appointment_id == aid, Invoice.is_deleted == False)
-            .first()
-        )
-        if not inv:
-            inv_num = f"INV-{uuid.uuid4().hex[:8].upper()}"
-            total = body.amount
-            inv = Invoice(
-                invoice_number=inv_num,
-                patient_id=a.patient_id,
-                appointment_id=aid,
-                invoice_date=body.payment_date,
-                due_date=body.payment_date,
-                status="DRAFT",
-                subtotal=total,
-                tax_amount=Decimal("0"),
-                discount_amount=Decimal("0"),
-                total_amount=total,
-                paid_amount=Decimal("0"),
-                balance_due=total,
-                notes=None,
-            )
-            db.add(inv)
-            db.flush()
+        clinic_id = getattr(a.doctor, "clinic_id", None) if a.doctor else None
         pm_num = f"PAY-{uuid.uuid4().hex[:8].upper()}"
         pm = Payment(
             payment_number=pm_num,
-            invoice_id=inv.id,
+            payment_type="PATIENT_PAYMENT",
             payment_date=body.payment_date,
             amount=body.amount,
             payment_method=body.payment_method or "CASH",
             status="COMPLETED",
             reference_number=None,
             notes=None,
+            patient_id=a.patient_id,
+            appointment_id=aid,
+            clinic_id=clinic_id,
         )
         db.add(pm)
-        inv.paid_amount = (inv.paid_amount or Decimal("0")) + body.amount
-        inv.balance_due = (inv.total_amount or Decimal("0")) - inv.paid_amount
-        inv.status = "PAID" if inv.balance_due <= 0 else "PARTIALLY_PAID"
         db.commit()
         db.refresh(pm)
         return {

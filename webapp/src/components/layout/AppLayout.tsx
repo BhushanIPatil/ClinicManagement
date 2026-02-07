@@ -18,10 +18,10 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const { user, logout } = useAuth()
+  const { user, logout, featureAccess } = useAuth()
   const navigate = useNavigate()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const menuItems = getVisibleMenuItems(user?.role_names ?? [])
+  const menuItems = getVisibleMenuItems(user?.role_names ?? [], featureAccess ?? null)
 
   const handleLogout = () => {
     logout()
@@ -29,23 +29,23 @@ export function AppLayout({ children }: AppLayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-slate-950 flex">
+      {/* Sidebar - header height matches main header for aligned bottom border */}
       <aside
         className={cn(
-          glassmorphism('dark', false, true),
-          'border-r border-white/20 flex flex-col fixed left-0 top-0 h-screen z-40 transition-[width] duration-300 ease-in-out overflow-hidden',
+          glassmorphism('dark', false, false),
+          'border-r border-slate-700/50 flex flex-col fixed left-0 top-0 h-screen z-40 transition-[width] duration-300 ease-in-out overflow-hidden',
           sidebarCollapsed ? 'w-16' : 'w-64'
         )}
       >
-        <div className={cn('border-b border-white/10 shrink-0 flex items-center', sidebarCollapsed ? 'justify-center p-2' : 'p-4')}>
+        <div className={cn('border-b border-slate-700/50 shrink-0 flex items-center h-14', sidebarCollapsed ? 'justify-center p-2' : 'px-4')}>
           {!sidebarCollapsed && (
-            <h2 className="text-lg font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent whitespace-nowrap">
+            <h2 className="text-lg font-semibold text-slate-200 whitespace-nowrap">
               Clinic Management
             </h2>
           )}
           {sidebarCollapsed && (
-            <span className="text-xs font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">CM</span>
+            <span className="text-xs font-semibold text-slate-200">CM</span>
           )}
         </div>
         <nav className="flex-1 overflow-y-auto py-4">
@@ -63,8 +63,8 @@ export function AppLayout({ children }: AppLayoutProps) {
                         'flex items-center rounded-lg text-sm transition-colors',
                         sidebarCollapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2.5',
                         isActive
-                          ? 'bg-primary/20 text-primary font-medium'
-                          : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+                          ? 'bg-slate-700/50 text-slate-100 font-medium'
+                          : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
                       )
                     }
                   >
@@ -87,12 +87,12 @@ export function AppLayout({ children }: AppLayoutProps) {
       >
         <header
           className={cn(
-            glassmorphism('dark', false, true),
-            'border-b border-white/20 sticky top-0 z-30'
+            glassmorphism('dark', false, false),
+            'border-b border-slate-700/50 sticky top-0 z-30 h-14 flex items-center'
           )}
         >
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="w-full px-6 flex items-center justify-between">
+            <div className="flex items-center gap-4 min-w-0">
               <Button
                 variant="ghost"
                 size="icon"
@@ -106,7 +106,9 @@ export function AppLayout({ children }: AppLayoutProps) {
                   <PanelLeftClose className="w-5 h-5" />
                 )}
               </Button>
-              <span className="text-muted-foreground text-sm">Clinic Management</span>
+              <span className="text-muted-foreground text-sm truncate">
+                {user?.primary_clinic_name || 'Clinic Management'}
+              </span>
             </div>
             <div className="flex items-center gap-4">
               {user && (
@@ -115,7 +117,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   <span className="text-muted-foreground">
                     {user.first_name} {user.last_name}
                   </span>
-                  <span className="px-2 py-1 rounded bg-primary/20 text-primary text-xs">
+                  <span className="px-2 py-1 rounded bg-slate-700/50 text-slate-200 text-xs font-medium">
                     {user.role_names?.[0] ?? 'USER'}
                   </span>
                 </div>

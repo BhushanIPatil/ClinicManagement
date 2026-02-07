@@ -9,6 +9,7 @@ import { workQueueService } from '@/services/work-queue.service'
 import type {
   WorkQueueItem,
   WorkQueueCreateRequest,
+  WorkQueueUpdateRequest,
   AssignWorkQueueRequest,
 } from '@/types/work-queue.types'
 
@@ -16,10 +17,12 @@ interface UseWorkQueueOptions {
   autoFetch?: boolean
   status?: string
   priority?: string
+  /** Only future items (due_date >= now, not completed/cancelled) */
+  future_only?: boolean
 }
 
 export function useWorkQueue(options: UseWorkQueueOptions = {}) {
-  const { autoFetch = true, status, priority } = options
+  const { autoFetch = true, status, priority, future_only } = options
 
   const [items, setItems] = useState<WorkQueueItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -29,14 +32,14 @@ export function useWorkQueue(options: UseWorkQueueOptions = {}) {
     setLoading(true)
     setError(null)
     try {
-      const data = await workQueueService.listItems({ status, priority })
+      const data = await workQueueService.listItems({ status, priority, future_only })
       setItems(data)
     } catch (err: any) {
       setError(err?.detail || 'Failed to fetch work queue items')
     } finally {
       setLoading(false)
     }
-  }, [status, priority])
+  }, [status, priority, future_only])
 
   const fetchVisibleItems = useCallback(async () => {
     setLoading(true)
@@ -65,6 +68,24 @@ export function useWorkQueue(options: UseWorkQueueOptions = {}) {
       setLoading(false)
     }
   }, [])
+
+  const updateItem = useCallback(
+    async (id: string, data: WorkQueueUpdateRequest) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const item = await workQueueService.updateItem(id, data)
+        setItems((prev) => prev.map((i) => (i.id === id ? item : i)))
+        return item
+      } catch (err: any) {
+        setError(err?.detail || 'Failed to update item')
+        throw err
+      } finally {
+        setLoading(false)
+      }
+    },
+    []
+  )
 
   const assignItem = useCallback(
     async (id: string, data: AssignWorkQueueRequest) => {
@@ -112,6 +133,7 @@ export function useWorkQueue(options: UseWorkQueueOptions = {}) {
     fetchItems,
     fetchVisibleItems,
     createItem,
+    updateItem,
     assignItem,
     completeItem,
   }

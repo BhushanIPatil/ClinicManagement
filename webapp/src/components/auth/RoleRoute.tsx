@@ -1,13 +1,22 @@
 /**
  * Role-Based Route Component
- * 
- * Wraps routes that require specific role(s).
+ *
+ * Access is controlled only by clinic admin settings for feature-gated paths.
+ * - Feature-gated (/patients, /work-queue, /payroll, /finance): allow if featureAccess[featureKey] is true (no role check).
+ * - Other paths: require one of requiredRoles.
  */
 
 import { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import type { UserRole } from '@/types/auth.types'
+
+const PATH_TO_FEATURE: Record<string, string> = {
+  '/patients': 'PATIENTS',
+  '/work-queue': 'WORK_QUEUE',
+  '/payroll': 'PAYROLL',
+  '/finance': 'FINANCE',
+}
 
 interface RoleRouteProps {
   children: ReactNode
@@ -15,7 +24,9 @@ interface RoleRouteProps {
 }
 
 export function RoleRoute({ children, requiredRoles }: RoleRouteProps) {
-  const { user, isAuthenticated, isLoading } = useAuth()
+  const { user, isAuthenticated, isLoading, featureAccess } = useAuth()
+  const location = useLocation()
+  const path = location.pathname
 
   if (isLoading) {
     return (
@@ -34,6 +45,14 @@ export function RoleRoute({ children, requiredRoles }: RoleRouteProps) {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  const featureKey = PATH_TO_FEATURE[path]
+  if (featureKey) {
+    if (featureAccess == null || !featureAccess[featureKey]) {
+      return <Navigate to="/unauthorized" replace />
+    }
+    return <>{children}</>
   }
 
   const roles = Array.isArray(requiredRoles) ? requiredRoles : [requiredRoles]

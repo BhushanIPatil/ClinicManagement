@@ -34,9 +34,9 @@ export type EntityType =
 
 export interface WorkQueueCreateRequest {
   title: string
-  description: string
+  description?: string
   priority?: Priority
-  entity_type: EntityType
+  entity_type?: EntityType
   entity_id?: string
   assigned_to_user_id?: string
   due_date?: string

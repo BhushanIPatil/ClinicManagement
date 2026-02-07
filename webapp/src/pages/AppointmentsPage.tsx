@@ -4,12 +4,15 @@
  * Add, list, edit, and cancel appointments. Used by CLINIC_ADMIN, RECEPTIONIST, DOCTOR.
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { toast } from 'sonner'
 import { Calendar, Clock, User, Stethoscope, Plus, Pencil, X, DollarSign } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppointments } from '@/hooks/useAppointments'
 import { appointmentService } from '@/services/appointment.service'
-import { DataTable, Column, LoadingSpinner, ErrorMessage } from '@/components/common'
+import { patientService } from '@/services/patient.service'
+import { DataTable, Column, LoadingSpinner, ErrorMessage, PaginationState } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SearchableSelect } from '@/components/ui/searchable-select'
@@ -96,8 +99,16 @@ export default function AppointmentsPage() {
   const [paymentSubmitting, setPaymentSubmitting] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
 
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+
   // Form fields
   const [patientId, setPatientId] = useState('')
+  const [addNewPatient, setAddNewPatient] = useState(false)
+  const [newPatientFirstName, setNewPatientFirstName] = useState('')
+  const [newPatientLastName, setNewPatientLastName] = useState('')
+  const [newPatientContact, setNewPatientContact] = useState('')
+  const [newPatientAddress, setNewPatientAddress] = useState('')
   const [doctorId, setDoctorId] = useState('')
   const [appointmentDate, setAppointmentDate] = useState('')
   const [durationMinutes, setDurationMinutes] = useState(30)
@@ -123,6 +134,11 @@ export default function AppointmentsPage() {
   const openAdd = useCallback(() => {
     setEditing(null)
     setPatientId('')
+    setAddNewPatient(false)
+    setNewPatientFirstName('')
+    setNewPatientLastName('')
+    setNewPatientContact('')
+    setNewPatientAddress('')
     setDoctorId('')
     setAppointmentDate(toDatetimeLocal(new Date().toISOString()))
     setDurationMinutes(30)
@@ -172,12 +188,42 @@ export default function AppointmentsPage() {
         }
         await updateAppointment(editing.id, payload)
       } else {
-        if (!patientId || !doctorId || !appointmentDate) {
-          setFormError('Patient, doctor and date/time are required.')
+        if (!doctorId || !appointmentDate) {
+          const msg = 'Doctor and date/time are required.'
+          setFormError(msg)
+          toast.warning(msg)
           return
         }
+        let resolvedPatientId = patientId
+        if (addNewPatient) {
+          const fn = (newPatientFirstName || '').trim()
+          const ln = (newPatientLastName || '').trim()
+          if (!fn || !ln) {
+            const msg = 'Patient name (first and last name) is required.'
+            setFormError(msg)
+            toast.warning(msg)
+            return
+          }
+          const contact = (newPatientContact || '').trim()
+          const address = (newPatientAddress || '').trim()
+          const newPatient = await patientService.createPatient({
+            first_name: fn,
+            last_name: ln,
+            phone: contact || undefined,
+            address: address || undefined,
+            gender: 'OTHER',
+          })
+          resolvedPatientId = newPatient.id
+        } else {
+          if (!patientId) {
+            const msg = 'Select a patient or add a new patient.'
+            setFormError(msg)
+            toast.warning(msg)
+            return
+          }
+        }
         const payload: BookAppointmentRequest = {
-          patient_id: patientId,
+          patient_id: resolvedPatientId,
           doctor_id: doctorId,
           appointment_date: fromDatetimeLocal(appointmentDate),
           duration_minutes: durationMinutes,
@@ -187,14 +233,22 @@ export default function AppointmentsPage() {
         await bookAppointment(payload)
       }
       closeModal()
+      toast.success(editing ? 'Appointment updated.' : 'Appointment booked.')
     } catch (e: any) {
-      setFormError(e?.detail ?? e?.message ?? 'Request failed')
+      const msg = e?.detail ?? e?.message ?? 'Request failed'
+      setFormError(msg)
+      toast.error(msg)
     } finally {
       setFormSubmitting(false)
     }
   }, [
     editing,
     patientId,
+    addNewPatient,
+    newPatientFirstName,
+    newPatientLastName,
+    newPatientContact,
+    newPatientAddress,
     doctorId,
     appointmentDate,
     durationMinutes,
@@ -211,8 +265,9 @@ export default function AppointmentsPage() {
       try {
         await cancelAppointment(item.id, { reason: 'Cancelled by user' })
         setCancelConfirmId(null)
+        toast.success('Appointment cancelled.')
       } catch {
-        // error already set in hook
+        toast.error('Failed to cancel appointment.')
       }
     },
     [cancelAppointment]
@@ -375,11 +430,27 @@ export default function AppointmentsPage() {
     },
   ]
 
+  const appointmentsList = Array.isArray(appointments) ? appointments : []
+  const appointmentsPagination: PaginationState = useMemo(
+    () => ({ page, pageSize, total: appointmentsList.length }),
+    [page, pageSize, appointmentsList.length]
+  )
+  const paginatedAppointments = useMemo(
+    () => appointmentsList.slice((page - 1) * pageSize, page * pageSize),
+    [appointmentsList, page, pageSize]
+  )
+  const onAppointmentsPageChange = useCallback((p: number, ps: number) => {
+    setPage(p)
+    setPageSize(ps)
+  }, [])
+
   const handleAddPayment = useCallback(async () => {
     if (!paymentModalAppointment) return
     const amt = Number(paymentAmount)
     if (!Number.isFinite(amt) || amt <= 0) {
-      setPaymentError('Enter a valid amount.')
+      const msg = 'Enter a valid amount.'
+      setPaymentError(msg)
+      toast.warning(msg)
       return
     }
     setPaymentSubmitting(true)
@@ -392,9 +463,11 @@ export default function AppointmentsPage() {
       })
       setPaymentModalAppointment(null)
       fetchAppointments()
+      toast.success('Payment recorded.')
     } catch (e: unknown) {
       const msg = (e as { detail?: string })?.detail ?? (e as Error)?.message ?? 'Failed to add payment'
       setPaymentError(String(msg))
+      toast.error(msg)
     } finally {
       setPaymentSubmitting(false)
     }
@@ -404,7 +477,7 @@ export default function AppointmentsPage() {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold">Appointments</h1>
-        <div className={cn(glassmorphism('dark', true, true), 'rounded-lg p-8')}>
+        <div className={cn(glassmorphism('dark', false, false), 'rounded-lg p-8')}>
           <LoadingSpinner text="Loading appointments..." />
         </div>
       </div>
@@ -428,22 +501,25 @@ export default function AppointmentsPage() {
       <div>
         <DataTable
           columns={columns}
-          data={Array.isArray(appointments) ? appointments : []}
+          data={paginatedAppointments}
           keyExtractor={(item) => item.id}
           emptyMessage="No appointments found"
+          pagination={appointmentsPagination}
+          onPageChange={onAppointmentsPageChange}
         />
       </div>
 
-      {/* Add/Edit modal */}
-      {modalOpen && (
+      {/* Add/Edit modal - portaled so overlay covers full viewport */}
+      {modalOpen && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 min-h-screen w-screen"
+          style={{ top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={closeModal}
         >
           <div
             className={cn(
-              glassmorphism('dark', true, true),
-              'rounded-xl border border-white/20 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl'
+              glassmorphism('dark', false, false),
+              'rounded-xl border border-white/20 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl mx-4'
             )}
             onClick={(e) => e.stopPropagation()}
           >
@@ -456,15 +532,95 @@ export default function AppointmentsPage() {
               )}
               <div className="grid gap-2">
                 <label className="text-sm font-medium text-muted-foreground">Patient</label>
-                <SearchableSelect
-                  options={patients.map((p) => ({ id: p.id, label: p.label }))}
-                  value={patientId}
-                  onValueChange={setPatientId}
-                  placeholder="Select patient"
-                  searchPlaceholder="Search patient..."
-                  disabled={!!editing}
-                  emptyMessage="No patients found"
-                />
+                {editing ? (
+                  <SearchableSelect
+                    options={patients.map((p) => ({ id: p.id, label: p.label }))}
+                    value={patientId}
+                    onValueChange={setPatientId}
+                    placeholder="Select patient"
+                    searchPlaceholder="Search patient..."
+                    disabled={true}
+                    emptyMessage="No patients found"
+                  />
+                ) : addNewPatient ? (
+                  <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-muted-foreground">New patient</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => {
+                          setAddNewPatient(false)
+                          setNewPatientFirstName('')
+                          setNewPatientLastName('')
+                          setNewPatientContact('')
+                          setNewPatientAddress('')
+                        }}
+                      >
+                        Choose existing patient
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="grid gap-1">
+                        <label className="text-xs text-muted-foreground">First name *</label>
+                        <Input
+                          value={newPatientFirstName}
+                          onChange={(e) => setNewPatientFirstName(e.target.value)}
+                          placeholder="First name"
+                        />
+                      </div>
+                      <div className="grid gap-1">
+                        <label className="text-xs text-muted-foreground">Last name *</label>
+                        <Input
+                          value={newPatientLastName}
+                          onChange={(e) => setNewPatientLastName(e.target.value)}
+                          placeholder="Last name"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-1">
+                      <label className="text-xs text-muted-foreground">Contact (phone)</label>
+                      <Input
+                        type="tel"
+                        value={newPatientContact}
+                        onChange={(e) => setNewPatientContact(e.target.value)}
+                        placeholder="Phone number (optional)"
+                      />
+                    </div>
+                    <div className="grid gap-1">
+                      <label className="text-xs text-muted-foreground">Address</label>
+                      <textarea
+                        className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={newPatientAddress}
+                        onChange={(e) => setNewPatientAddress(e.target.value)}
+                        placeholder="Address (optional)"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <SearchableSelect
+                      options={patients.map((p) => ({ id: p.id, label: p.label }))}
+                      value={patientId}
+                      onValueChange={setPatientId}
+                      placeholder="Select patient"
+                      searchPlaceholder="Search patient..."
+                      emptyMessage="No patients found"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setAddNewPatient(true)}
+                    >
+                      <User className="w-4 h-4 mr-2" />
+                      Add new patient
+                    </Button>
+                  </>
+                )}
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium text-muted-foreground">Doctor</label>
@@ -549,13 +705,15 @@ export default function AppointmentsPage() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Patient payment modal */}
-      {paymentModalAppointment && (
+      {/* Patient payment modal - portaled so overlay covers full viewport */}
+      {paymentModalAppointment && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 min-h-screen w-screen"
+          style={{ top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => {
             setPaymentModalAppointment(null)
             setPaymentError(null)
@@ -563,8 +721,8 @@ export default function AppointmentsPage() {
         >
           <div
             className={cn(
-              glassmorphism('dark', true, true),
-              'rounded-xl border border-white/20 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-xl'
+              glassmorphism('dark', false, false),
+              'rounded-xl border border-white/20 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-xl mx-4'
             )}
             onClick={(e) => e.stopPropagation()}
           >
@@ -638,7 +796,8 @@ export default function AppointmentsPage() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
