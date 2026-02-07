@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { superAdminService } from '@/services/super-admin.service'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -42,9 +43,12 @@ export default function SuperAdminOnboard() {
           phone: form.userPhone || undefined,
         },
       })
+      toast.success('Clinic onboarded.')
       navigate('/super-admin/clinics', { replace: true })
     } catch (err: any) {
-      setError(err?.detail || err?.message || 'Onboard failed')
+      const msg = err?.detail || err?.message || 'Onboard failed'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }

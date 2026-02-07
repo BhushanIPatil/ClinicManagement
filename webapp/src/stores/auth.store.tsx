@@ -9,12 +9,15 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { authService } from '@/services/auth.service'
 import type { User, LoginRequest, RegisterRequest } from '@/types/auth.types'
 import type { ApiError } from '@/services/api.service'
+import type { FeatureAccess } from '@/services/auth.service'
 
 interface AuthState {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
   error: string | null
+  /** Feature access for current user (FINANCE, PATIENTS, WORK_QUEUE, PAYROLL). Fetched after login. */
+  featureAccess: FeatureAccess | null
 }
 
 interface AuthContextValue extends AuthState {
@@ -22,6 +25,7 @@ interface AuthContextValue extends AuthState {
   register: (data: RegisterRequest) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
+  fetchFeatureAccess: () => Promise<void>
   clearError: () => void
 }
 
@@ -33,21 +37,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: false,
     isLoading: true,
     error: null,
+    featureAccess: null,
   })
 
+  const fetchFeatureAccess = async (): Promise<void> => {
+    if (!authService.isAuthenticated()) return
+    try {
+      const access = await authService.getFeatureAccess()
+      setState((prev) => ({ ...prev, featureAccess: access }))
+    } catch {
+      setState((prev) => ({ ...prev, featureAccess: null }))
+    }
+  }
+
   /**
-   * Initialize auth state from storage
+   * Initialize auth state from storage. For authenticated users, load feature access
+   * before marking loading complete so the user only sees features they have access to.
    */
   useEffect(() => {
-    function initializeAuth() {
+    async function initializeAuth() {
       try {
         const storedUser = authService.getStoredUser()
         if (storedUser && authService.isAuthenticated()) {
+          let access: Record<string, boolean> | null = null
+          try {
+            access = await authService.getFeatureAccess()
+          } catch {
+            access = null
+          }
           setState({
             user: storedUser,
             isAuthenticated: true,
             isLoading: false,
             error: null,
+            featureAccess: access,
           })
         } else {
           setState({
@@ -55,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isAuthenticated: false,
             isLoading: false,
             error: null,
+            featureAccess: null,
           })
         }
       } catch {
@@ -63,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           isAuthenticated: false,
           isLoading: false,
           error: null,
+          featureAccess: null,
         })
       }
     }
@@ -78,11 +103,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const response = await authService.login(credentials)
+      const access = await authService.getFeatureAccess().catch(() => ({}))
       setState({
         user: response.user,
         isAuthenticated: true,
         isLoading: false,
         error: null,
+        featureAccess: access,
       })
     } catch (error: any) {
       const errorMessage =
@@ -92,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: false,
         isLoading: false,
         error: errorMessage,
+        featureAccess: null,
       })
       throw error
     }
@@ -119,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: false,
         isLoading: false,
         error: errorMessage,
+        featureAccess: null,
       })
       throw error
     }
@@ -134,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      featureAccess: null,
     })
   }
 
@@ -168,6 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     register,
     logout,
     refreshUser,
+    fetchFeatureAccess,
     clearError,
   }
 

@@ -26,5 +26,4 @@ class Patient(BaseModel):
     
     # Relationships
     appointments = relationship("Appointment", back_populates="patient")
-    invoices = relationship("Invoice", back_populates="patient")
     insurance = relationship("Insurance", back_populates="patient", uselist=False)

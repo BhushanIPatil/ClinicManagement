@@ -4,9 +4,10 @@
  * Displays work queue items with priority-based styling.
  */
 
+import { useState, useMemo } from 'react'
 import { AlertCircle, Clock, User, CheckCircle2 } from 'lucide-react'
 import { useWorkQueue } from '@/hooks/useWorkQueue'
-import { DataTable, Column, LoadingSpinner, ErrorMessage } from '@/components/common'
+import { DataTable, Column, LoadingSpinner, ErrorMessage, PaginationState } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { WorkQueueItem } from '@/types/work-queue.types'
@@ -14,18 +15,40 @@ import type { WorkQueueItem } from '@/types/work-queue.types'
 interface WorkQueueListProps {
   status?: string
   priority?: string
+  /** Only show future items (due in future, not completed/cancelled) */
+  future_only?: boolean
   className?: string
 }
+
+const DEFAULT_PAGE_SIZE = 10
 
 export function WorkQueueList({
   status,
   priority,
+  future_only,
   className,
 }: WorkQueueListProps) {
   const { items, loading, error, completeItem } = useWorkQueue({
     status,
     priority,
+    future_only,
   })
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const list = Array.isArray(items) ? items : []
+  const total = list.length
+  const pagination: PaginationState = useMemo(
+    () => ({ page, pageSize, total }),
+    [page, pageSize, total]
+  )
+  const paginatedData = useMemo(
+    () => list.slice((page - 1) * pageSize, page * pageSize),
+    [list, page, pageSize]
+  )
+  const onPageChange = (p: number, ps: number) => {
+    setPage(p)
+    setPageSize(ps)
+  }
 
   const getPriorityColor = (priority: string) => {
     const colors: Record<string, string> = {
@@ -168,9 +191,11 @@ export function WorkQueueList({
     <div className={cn(className)}>
       <DataTable
         columns={columns}
-        data={Array.isArray(items) ? items : []}
+        data={paginatedData}
         keyExtractor={(item) => item.id}
         emptyMessage="No work queue items found"
+        pagination={pagination}
+        onPageChange={onPageChange}
       />
     </div>
   )

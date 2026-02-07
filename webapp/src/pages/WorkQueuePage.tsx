@@ -1,23 +1,26 @@
 /**
  * Work Queue Page
  *
- * Role-based:
- * - DOCTOR: My schedule (appointments) with patient status, visit status, fees paid; can update status.
- * - NURSE: Patient status and details (generic work queue).
- * - RECEPTIONIST / CLINIC_ADMIN: Work queue items and appointment management.
+ * - Future appointments (clinic) and clinic work (tasks) with Create work button.
+ * - DOCTOR: also "My schedule" with visit status and fees.
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
-import { Calendar, Clock, User, DollarSign, Loader2 } from 'lucide-react'
+import { Calendar, Clock, User, DollarSign, Loader2, Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { WorkQueueList } from '@/components/features/WorkQueueList'
+import { WorkQueueBoard } from '@/components/features/WorkQueueBoard'
 import { appointmentService } from '@/services/appointment.service'
 import { DataTable, Column, LoadingSpinner, ErrorMessage } from '@/components/common'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { glassmorphism } from '@/lib/glassmorphism'
 import { cn } from '@/lib/utils'
 import type { Appointment, AppointmentStatus } from '@/types/appointment.types'
+import type { WorkQueueCreateRequest } from '@/types/work-queue.types'
+import { useWorkQueue } from '@/hooks/useWorkQueue'
 
 const STATUS_OPTIONS: AppointmentStatus[] = [
   'SCHEDULED',
@@ -94,7 +97,7 @@ function DoctorWorkQueueView() {
 
   if (loading && appointments.length === 0) {
     return (
-      <div className={cn(glassmorphism('dark', true, true), 'rounded-lg p-8')}>
+      <div className={cn(glassmorphism('dark', false, false), 'rounded-lg p-8')}>
         <LoadingSpinner text="Loading your schedule..." />
       </div>
     )
@@ -218,19 +221,114 @@ export default function WorkQueuePage() {
   const { user } = useAuth()
   const roles = (user?.role_names ?? []).map((r) => r.toUpperCase())
   const isDoctor = roles.includes('DOCTOR')
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [createSubmitting, setCreateSubmitting] = useState(false)
+  const [createTitle, setCreateTitle] = useState('')
+  const [createDescription, setCreateDescription] = useState('')
+  const [createDueDate, setCreateDueDate] = useState('')
+  const [createPriority, setCreatePriority] = useState<string>('NORMAL')
+  const [listRefreshKey, setListRefreshKey] = useState(0)
+  const { createItem } = useWorkQueue({ future_only: true, autoFetch: false })
+
+  const handleCreateWork = useCallback(async () => {
+    const title = (createTitle ?? '').trim()
+    if (!title) {
+      toast.warning('Title is required.')
+      return
+    }
+    setCreateSubmitting(true)
+    try {
+      const payload: WorkQueueCreateRequest = {
+        title,
+        description: (createDescription ?? '').trim() || undefined,
+        priority: (createPriority as 'LOW' | 'NORMAL' | 'HIGH') || 'NORMAL',
+        entity_type: 'TASK',
+      }
+      if ((createDueDate ?? '').trim()) {
+        payload.due_date = new Date(createDueDate).toISOString()
+      }
+      await createItem(payload)
+      toast.success('Work item created.')
+      setCreateModalOpen(false)
+      setCreateTitle('')
+      setCreateDescription('')
+      setCreateDueDate('')
+      setCreatePriority('NORMAL')
+      setListRefreshKey((k) => k + 1)
+    } catch (err: unknown) {
+      const msg = (err as { detail?: string })?.detail ?? (err as Error)?.message ?? 'Failed to create work item'
+      toast.error(msg)
+    } finally {
+      setCreateSubmitting(false)
+    }
+  }, [createTitle, createDescription, createDueDate, createPriority, createItem])
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Work Queue</h1>
-      {isDoctor ? (
-        <DoctorWorkQueueView />
-      ) : (
-        <>
-          <p className="text-muted-foreground text-sm">
-            Manage work items, patient status, and appointments.
-          </p>
-          <WorkQueueList />
-        </>
+      <p className="text-slate-400 text-sm">
+        Future appointments and clinic work. Add work items visible to your clinic.
+      </p>
+
+      {isDoctor && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold text-slate-200">My schedule</h2>
+          <DoctorWorkQueueView />
+        </section>
+      )}
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-200">Clinic work</h2>
+          <Button onClick={() => setCreateModalOpen(true)} className="gap-2">
+            <Plus className="w-4 h-4" />
+            Create work
+          </Button>
+        </div>
+        <p className="text-slate-500 text-sm">Pending column includes upcoming appointments and clinic tasks. Move tasks between Pending, In progress, and Completed using the dropdown on each card.</p>
+        <WorkQueueBoard key={listRefreshKey} />
+      </section>
+
+      {createModalOpen && createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 min-h-screen w-screen"
+          style={{ top: 0, left: 0, right: 0, bottom: 0 }}
+          onClick={() => !createSubmitting && setCreateModalOpen(false)}
+        >
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-6 shadow-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-200 mb-4">Create work item</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Title *</label>
+                <Input value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} placeholder="Task title" className="bg-slate-800 border-slate-600" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Description</label>
+                <Input value={createDescription} onChange={(e) => setCreateDescription(e.target.value)} placeholder="Optional" className="bg-slate-800 border-slate-600" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Due date</label>
+                <Input type="datetime-local" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} className="bg-slate-800 border-slate-600" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Priority</label>
+                <select value={createPriority} onChange={(e) => setCreatePriority(e.target.value)} className="w-full rounded border border-slate-600 bg-slate-800 px-3 py-2 text-slate-200">
+                  <option value="LOW">Low</option>
+                  <option value="NORMAL">Normal</option>
+                  <option value="HIGH">High</option>
+                  <option value="URGENT">Urgent</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6 justify-end">
+              <Button variant="outline" onClick={() => !createSubmitting && setCreateModalOpen(false)} disabled={createSubmitting}>Cancel</Button>
+              <Button onClick={handleCreateWork} disabled={createSubmitting}>
+                {createSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create'}
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   )

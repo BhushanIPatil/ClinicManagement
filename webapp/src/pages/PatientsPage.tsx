@@ -5,6 +5,8 @@
  */
 
 import { useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
 import { usePatients } from '@/hooks/usePatients'
 import { PatientsList } from '@/components/features/PatientsList'
@@ -61,7 +63,9 @@ export default function PatientsPage() {
     const fn = (first_name ?? '').trim()
     const ln = (last_name ?? '').trim()
     if (!fn || !ln) {
-      setFormError('First name and last name are required.')
+      const msg = 'First name and last name are required.'
+      setFormError(msg)
+      toast.warning(msg)
       return
     }
     setFormSubmitting(true)
@@ -83,9 +87,11 @@ export default function PatientsPage() {
       }
       await createPatient(payload)
       closeModal()
+      toast.success('Patient added.')
     } catch (e: unknown) {
       const msg = (e as { detail?: string })?.detail ?? (e as Error)?.message ?? 'Failed to add patient'
       setFormError(String(msg))
+      toast.error(msg)
     } finally {
       setFormSubmitting(false)
     }
@@ -119,15 +125,16 @@ export default function PatientsPage() {
       </p>
       <PatientsList patients={patients} loading={loading} error={error} />
 
-      {modalOpen && (
+      {modalOpen && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 min-h-screen w-screen"
+          style={{ top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={closeModal}
         >
           <div
             className={cn(
-              glassmorphism('dark', true, true),
-              'rounded-xl border border-white/20 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl'
+              glassmorphism('dark', false, false),
+              'rounded-xl border border-slate-700/50 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl mx-4 bg-slate-900/95'
             )}
             onClick={(e) => e.stopPropagation()}
           >
@@ -251,7 +258,8 @@ export default function PatientsPage() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

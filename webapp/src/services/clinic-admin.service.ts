@@ -59,6 +59,29 @@ export interface ClinicEmployeeListItem {
   is_active_empl?: boolean
 }
 
+/** Per-user feature access: FINANCE, PATIENTS, WORK_QUEUE, PAYROLL -> boolean */
+export type UserFeatures = Record<string, boolean>
+
+export interface ClinicSettingsUserItem {
+  id: string
+  email: string
+  username: string
+  first_name: string | null
+  last_name: string | null
+  clinic_role: string
+  features: UserFeatures
+}
+
+/** GET /clinic-admin/settings returns { users: ClinicSettingsUserItem[] } */
+export interface ClinicSettingsResponse {
+  users: ClinicSettingsUserItem[]
+}
+
+/** PUT body: list of user id + features, or map user_id -> features */
+export type ClinicSettingsPutBody =
+  | { users: Array<{ user_id?: string; id?: string; features: UserFeatures }> }
+  | Record<string, UserFeatures>
+
 class ClinicAdminService {
   /**
    * Add an employee to the current user's clinic. Uses JWT; clinic is taken from the logged-in CLINIC_ADMIN.
@@ -105,6 +128,20 @@ class ClinicAdminService {
     return apiService.get<{ items: ClinicEmployeeListItem[]; total: number; skip: number; limit: number }>(
       `/clinic-admin/clinics/${clinicId}/employees${query ? `?${query}` : ''}`
     )
+  }
+
+  /**
+   * Users and their feature access for the current clinic. Returns { users: [ { id, email, username, first_name, last_name, clinic_role, features }, ... ] }.
+   */
+  async getClinicSettings(): Promise<ClinicSettingsResponse> {
+    return apiService.get<ClinicSettingsResponse>('/clinic-admin/settings')
+  }
+
+  /**
+   * Update per-user feature access. Body: { users: [ { user_id, features: { FINANCE, PATIENTS, WORK_QUEUE, PAYROLL } }, ... ] } or { "user_id": { FINANCE: true, ... }, ... }.
+   */
+  async putClinicSettings(body: ClinicSettingsPutBody): Promise<ClinicSettingsResponse> {
+    return apiService.put<ClinicSettingsResponse>('/clinic-admin/settings', body)
   }
 }
 

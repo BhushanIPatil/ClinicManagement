@@ -144,7 +144,18 @@ class AuthService {
   getAccessToken(): string | null {
     return tokenStorage.getAccessToken()
   }
+
+  /**
+   * Get feature access for current user (primary clinic + roles).
+   * Returns { FINANCE, PATIENTS, WORK_QUEUE, PAYROLL } -> boolean. CLINIC_ADMIN gets all true.
+   */
+  async getFeatureAccess(): Promise<FeatureAccess> {
+    return apiService.get<FeatureAccess>('/auth/me/feature-access')
+  }
 }
+
+/** Backend returns uppercase keys: FINANCE, PATIENTS, WORK_QUEUE, PAYROLL */
+export type FeatureAccess = Record<string, boolean>
 
 // Export singleton instance
 export const authService = new AuthService()

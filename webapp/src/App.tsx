@@ -1,3 +1,4 @@
+import { Toaster } from 'sonner'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './components/theme/theme-provider'
 import { AuthProvider } from './stores/auth.store'
@@ -12,13 +13,17 @@ import SuperAdminOnboard from './pages/SuperAdminOnboard'
 import AppointmentsPage from './pages/AppointmentsPage'
 import PatientsPage from './pages/PatientsPage'
 import WorkQueuePage from './pages/WorkQueuePage'
+import MyTasksPage from './pages/MyTasksPage'
 import PlaceholderPage from './pages/PlaceholderPage'
+import PayrollPage from './pages/PayrollPage'
 import UsersPage from './pages/UsersPage'
 import ClinicAdminAddEmployee from './pages/ClinicAdminAddEmployee'
+import SettingsPage from './pages/SettingsPage'
 
 function App() {
   return (
     <ThemeProvider defaultTheme="dark" storageKey="clinic-ui-theme">
+      <Toaster position="top-right" richColors closeButton theme="dark" />
       <AuthProvider>
         <BrowserRouter>
           <Routes>
@@ -79,6 +84,16 @@ function App() {
                 </RoleRoute>
               }
             />
+            <Route
+              path="/settings"
+              element={
+                <RoleRoute requiredRoles="CLINIC_ADMIN">
+                  <AppLayout>
+                    <SettingsPage />
+                  </AppLayout>
+                </RoleRoute>
+              }
+            />
 
             {/* Patients: add before setting up appointments */}
             <Route
@@ -113,6 +128,17 @@ function App() {
                 </RoleRoute>
               }
             />
+            {/* Your Tasks: personal tasks, any authenticated user */}
+            <Route
+              path="/my-tasks"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <MyTasksPage />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
 
             {/* Payroll: CLINIC_ADMIN, HR_OPERATIONS, DOCTOR */}
             <Route
@@ -120,7 +146,7 @@ function App() {
               element={
                 <RoleRoute requiredRoles={['CLINIC_ADMIN', 'HR_OPERATIONS', 'DOCTOR']}>
                   <AppLayout>
-                    <PlaceholderPage />
+                    <PayrollPage />
                   </AppLayout>
                 </RoleRoute>
               }

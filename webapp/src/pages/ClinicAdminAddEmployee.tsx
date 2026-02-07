@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { clinicAdminService } from '@/services/clinic-admin.service'
 import type { ClinicEmployeeRole, AddAsType } from '@/services/clinic-admin.service'
 import { tokenStorage } from '@/lib/token-storage'
@@ -41,7 +42,9 @@ export default function ClinicAdminAddEmployee() {
     e.preventDefault()
     setError(null)
     if (!primaryClinicId) {
-      setError("Your account doesn't have a clinic assigned. Contact an administrator.")
+      const msg = "Your account doesn't have a clinic assigned. Contact an administrator."
+      setError(msg)
+      toast.warning(msg)
       return
     }
     setLoading(true)
@@ -56,9 +59,12 @@ export default function ClinicAdminAddEmployee() {
         role: form.role,
         add_as: form.add_as,
       })
+      toast.success('User added.')
       navigate('/users', { replace: true })
     } catch (err: any) {
-      setError(err?.detail || err?.message || 'Add employee failed')
+      const msg = err?.detail || err?.message || 'Add employee failed'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }

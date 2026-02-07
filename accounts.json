@@ -1,0 +1,20 @@
+[
+    {
+        "username": "pramodpatil",
+        "email": "pramod@gmail.com",
+        "new_password": "Pramod@2026",
+        "role": "DOCTOR"
+    },
+    {
+        "username": "bhushan8551",
+        "email": "superadmin@gmail.com",
+        "new_password": "SuperAdmin123",
+        "role": "SUPER_ADMIN"
+    },
+    {
+        "username": "kamaldattadentist",
+        "email": "kamaldutta@gmail.com",
+        "new_password": "Kamaldutta@2026",
+        "role": "CLINIC_ADMIN"
+      }
+]

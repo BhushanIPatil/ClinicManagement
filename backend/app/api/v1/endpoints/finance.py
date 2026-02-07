@@ -1,69 +1,31 @@
 """
-Finance & Billing API Endpoints
+Finance API Endpoints
 
-This module provides endpoints for financial management.
+Summary cards and latest transactions (patient payments + employee payroll payments).
+No invoices; all payment info in payments table (PATIENT_PAYMENT, EMPLOYEE_PAYROLL).
 """
 
-import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
 from app.core.database import db_manager
-from app.infrastructure.database.models import Invoice, Payment, Patient
+from app.infrastructure.database.models import Payment, Appointment, Payslip, Payroll
 
 router = APIRouter(prefix="/finance", tags=["Finance"])
 
 
-class CreateInvoiceRequest(BaseModel):
-    patient_id: UUID
-    appointment_id: Optional[UUID] = None
-    invoice_date: datetime
-    due_date: Optional[datetime] = None
-    total_amount: Decimal = Field(..., ge=0)
-    status: str = Field("DRAFT", description="DRAFT, PENDING, PAID, PARTIALLY_PAID, CANCELLED, OVERDUE")
-    notes: Optional[str] = None
-
-
-class CreatePaymentRequest(BaseModel):
-    invoice_id: UUID
-    amount: Decimal = Field(..., gt=0)
-    payment_date: datetime
-    payment_method: str = Field("CASH", description="CASH, CARD, INSURANCE, BANK_TRANSFER, etc.")
-    status: str = Field("COMPLETED", description="PENDING, COMPLETED, FAILED, REFUNDED")
-    reference_number: Optional[str] = None
-    notes: Optional[str] = None
-
-
-def _invoice_item(inv: Invoice) -> dict:
-    return {
-        "id": str(inv.id),
-        "invoice_number": inv.invoice_number or "",
-        "patient_id": str(inv.patient_id) if inv.patient_id else "",
-        "appointment_id": str(inv.appointment_id) if inv.appointment_id else None,
-        "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
-        "due_date": inv.due_date.isoformat() if inv.due_date else None,
-        "status": inv.status or "DRAFT",
-        "subtotal": float(inv.subtotal or 0),
-        "tax_amount": float(inv.tax_amount or 0),
-        "discount_amount": float(inv.discount_amount or 0),
-        "total_amount": float(inv.total_amount or 0),
-        "paid_amount": float(inv.paid_amount or 0),
-        "balance_due": float(inv.balance_due or 0),
-        "notes": inv.notes,
-        "created_at": inv.created_at.isoformat() if getattr(inv, "created_at", None) else None,
-    }
-
-
-def _payment_item(pm: Payment) -> dict:
-    return {
+def _payment_to_transaction(pm: Payment, patient_name: Optional[str] = None, employee_label: Optional[str] = None) -> dict:
+    """Build transaction item for list (patient or employee payment)."""
+    out = {
         "id": str(pm.id),
         "payment_number": pm.payment_number or "",
-        "invoice_id": str(pm.invoice_id) if pm.invoice_id else "",
+        "payment_type": pm.payment_type or "",
         "payment_date": pm.payment_date.isoformat() if pm.payment_date else None,
         "amount": float(pm.amount or 0),
         "payment_method": pm.payment_method or "",
@@ -72,98 +34,121 @@ def _payment_item(pm: Payment) -> dict:
         "notes": pm.notes,
         "created_at": pm.created_at.isoformat() if getattr(pm, "created_at", None) else None,
     }
+    if pm.payment_type == "PATIENT_PAYMENT":
+        out["description"] = f"Patient payment" + (f" – {patient_name}" if patient_name else "")
+        out["patient_id"] = str(pm.patient_id) if pm.patient_id else None
+        out["appointment_id"] = str(pm.appointment_id) if pm.appointment_id else None
+    else:
+        out["description"] = f"Employee payroll" + (f" – {employee_label}" if employee_label else "")
+        out["payslip_id"] = str(pm.payslip_id) if pm.payslip_id else None
+    return out
 
 
-@router.get("/invoices")
-async def list_invoices(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
-    status: Optional[str] = None,
-) -> Any:
-    """List invoices with filtering."""
+@router.get("/summary")
+async def get_finance_summary(clinic_id: Optional[str] = Query(None)) -> Any:
+    """Summary cards: total patient payments, total employee payments, counts, this month."""
     db = db_manager.get_session()
     try:
-        q = db.query(Invoice).filter(Invoice.is_deleted == False)
-        if status:
-            q = q.filter(Invoice.status == status)
-        total = q.count()
-        rows = q.order_by(Invoice.invoice_date.desc()).offset(skip).limit(limit).all()
-        return {"items": [_invoice_item(r) for r in rows], "total": total, "skip": skip, "limit": limit}
-    finally:
-        db.close()
-
-
-@router.get("/invoices/{invoice_id}")
-async def get_invoice(invoice_id: str) -> Any:
-    """Get invoice by ID."""
-    try:
-        iid = UUID(invoice_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid invoice ID")
-    db = db_manager.get_session()
-    try:
-        inv = db.query(Invoice).filter(Invoice.id == iid, Invoice.is_deleted == False).first()
-        if not inv:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
-        return _invoice_item(inv)
-    finally:
-        db.close()
-
-
-@router.post("/invoices", status_code=status.HTTP_201_CREATED)
-async def create_invoice(body: CreateInvoiceRequest) -> Any:
-    """Create a new invoice."""
-    db = db_manager.get_session()
-    try:
-        patient = db.query(Patient).filter(Patient.id == body.patient_id, Patient.is_deleted == False).first()
-        if not patient:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-        inv_num = f"INV-{uuid.uuid4().hex[:8].upper()}"
-        total = body.total_amount
-        inv = Invoice(
-            invoice_number=inv_num,
-            patient_id=body.patient_id,
-            appointment_id=body.appointment_id,
-            invoice_date=body.invoice_date,
-            due_date=body.due_date or body.invoice_date,
-            status=body.status or "DRAFT",
-            subtotal=total,
-            tax_amount=Decimal("0"),
-            discount_amount=Decimal("0"),
-            total_amount=total,
-            paid_amount=Decimal("0"),
-            balance_due=total,
-            notes=body.notes,
+        q_patient = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+            Payment.is_deleted == False,
+            Payment.payment_type == "PATIENT_PAYMENT",
+            Payment.status == "COMPLETED",
         )
-        db.add(inv)
-        db.commit()
-        db.refresh(inv)
-        return _invoice_item(inv)
+        q_employee = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+            Payment.is_deleted == False,
+            Payment.payment_type == "EMPLOYEE_PAYROLL",
+            Payment.status == "COMPLETED",
+        )
+        if clinic_id:
+            try:
+                cid = UUID(clinic_id)
+                q_patient = q_patient.filter(Payment.clinic_id == cid)
+                q_employee = q_employee.filter(Payment.clinic_id == cid)
+            except ValueError:
+                pass
+        total_patient = float(q_patient.scalar() or 0)
+        total_employee = float(q_employee.scalar() or 0)
+
+        cnt_patient = db.query(func.count(Payment.id)).filter(
+            Payment.is_deleted == False,
+            Payment.payment_type == "PATIENT_PAYMENT",
+            Payment.status == "COMPLETED",
+        ).scalar() or 0
+        cnt_employee = db.query(func.count(Payment.id)).filter(
+            Payment.is_deleted == False,
+            Payment.payment_type == "EMPLOYEE_PAYROLL",
+            Payment.status == "COMPLETED",
+        ).scalar() or 0
+
+        now = datetime.now(timezone.utc)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        this_month_patient = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+            Payment.is_deleted == False,
+            Payment.payment_type == "PATIENT_PAYMENT",
+            Payment.status == "COMPLETED",
+            Payment.payment_date >= month_start,
+        ).scalar() or 0
+        this_month_employee = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+            Payment.is_deleted == False,
+            Payment.payment_type == "EMPLOYEE_PAYROLL",
+            Payment.status == "COMPLETED",
+            Payment.payment_date >= month_start,
+        ).scalar() or 0
+
+        return {
+            "total_patient_payments": total_patient,
+            "total_employee_payments": total_employee,
+            "total_transactions": float(total_patient) + float(total_employee),
+            "patient_payments_count": cnt_patient,
+            "employee_payments_count": cnt_employee,
+            "this_month_patient_payments": float(this_month_patient),
+            "this_month_employee_payments": float(this_month_employee),
+        }
     finally:
         db.close()
 
 
-@router.get("/payments")
-async def list_payments(
+@router.get("/transactions")
+async def list_latest_transactions(
     skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
-    status: Optional[str] = None,
-    invoice_id: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100),
+    payment_type: Optional[str] = Query(None, description="PATIENT_PAYMENT or EMPLOYEE_PAYROLL"),
+    clinic_id: Optional[str] = Query(None),
 ) -> Any:
-    """List payments with pagination."""
+    """Latest transactions (patient payments and/or employee payroll)."""
     db = db_manager.get_session()
     try:
         q = db.query(Payment).filter(Payment.is_deleted == False)
-        if status:
-            q = q.filter(Payment.status == status)
-        if invoice_id:
+        if payment_type:
+            q = q.filter(Payment.payment_type == payment_type.upper())
+        if clinic_id:
             try:
-                q = q.filter(Payment.invoice_id == UUID(invoice_id))
+                cid = UUID(clinic_id)
+                q = q.filter(Payment.clinic_id == cid)
             except ValueError:
                 pass
         total = q.count()
-        rows = q.order_by(Payment.payment_date.desc()).offset(skip).limit(limit).all()
-        return {"items": [_payment_item(r) for r in rows], "total": total, "skip": skip, "limit": limit}
+        rows = (
+            q.options(
+                joinedload(Payment.patient),
+                joinedload(Payment.appointment),
+                joinedload(Payment.payslip).joinedload(Payslip.payroll),
+            )
+            .order_by(Payment.payment_date.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+        items = []
+        for pm in rows:
+            patient_name = None
+            if pm.patient:
+                patient_name = f"{getattr(pm.patient, 'first_name', '') or ''} {getattr(pm.patient, 'last_name', '') or ''}".strip() or None
+            employee_label = None
+            if pm.payslip and pm.payslip.payroll:
+                employee_label = f"Payroll {pm.payslip.payroll.payroll_number or pm.payslip.payslip_number}"
+            items.append(_payment_to_transaction(pm, patient_name=patient_name, employee_label=employee_label))
+        return {"items": items, "total": total, "skip": skip, "limit": limit}
     finally:
         db.close()
 
@@ -177,63 +162,24 @@ async def get_payment(payment_id: str) -> Any:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid payment ID")
     db = db_manager.get_session()
     try:
-        pm = db.query(Payment).filter(Payment.id == pid, Payment.is_deleted == False).first()
+        pm = (
+            db.query(Payment)
+            .options(
+                joinedload(Payment.patient),
+                joinedload(Payment.appointment),
+                joinedload(Payment.payslip).joinedload(Payslip.payroll),
+            )
+            .filter(Payment.id == pid, Payment.is_deleted == False)
+            .first()
+        )
         if not pm:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
-        return _payment_item(pm)
+        patient_name = None
+        if pm.patient:
+            patient_name = f"{getattr(pm.patient, 'first_name', '') or ''} {getattr(pm.patient, 'last_name', '') or ''}".strip() or None
+        employee_label = None
+        if pm.payslip and pm.payslip.payroll:
+            employee_label = f"Payroll {pm.payslip.payroll.payroll_number or pm.payslip.payslip_number}"
+        return _payment_to_transaction(pm, patient_name=patient_name, employee_label=employee_label)
     finally:
         db.close()
-
-
-@router.post("/payments", status_code=status.HTTP_201_CREATED)
-async def create_payment(body: CreatePaymentRequest) -> Any:
-    """Record a new payment."""
-    db = db_manager.get_session()
-    try:
-        inv = db.query(Invoice).filter(Invoice.id == body.invoice_id, Invoice.is_deleted == False).first()
-        if not inv:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
-        pm_num = f"PAY-{uuid.uuid4().hex[:8].upper()}"
-        pm = Payment(
-            payment_number=pm_num,
-            invoice_id=body.invoice_id,
-            payment_date=body.payment_date,
-            amount=body.amount,
-            payment_method=body.payment_method or "CASH",
-            status=body.status or "COMPLETED",
-            reference_number=body.reference_number,
-            notes=body.notes,
-        )
-        db.add(pm)
-        inv.paid_amount = (inv.paid_amount or Decimal("0")) + body.amount
-        inv.balance_due = (inv.total_amount or Decimal("0")) - inv.paid_amount
-        inv.status = "PAID" if inv.balance_due <= 0 else "PARTIALLY_PAID"
-        db.commit()
-        db.refresh(pm)
-        return _payment_item(pm)
-    finally:
-        db.close()
-
-
-@router.get("/reports/revenue")
-async def get_revenue_report(
-    period: str = Query("month", pattern="^(day|week|month|year)$"),
-) -> Any:
-    """Get revenue report."""
-    return {
-        "period": period,
-        "total_revenue": 0,
-        "total_expenses": 0,
-        "net_income": 0
-    }
-
-
-@router.get("/stats/summary")
-async def get_finance_summary() -> Any:
-    """Get financial summary statistics."""
-    return {
-        "total_revenue": 0,
-        "pending_payments": 0,
-        "overdue_invoices": 0,
-        "this_month_revenue": 0
-    }

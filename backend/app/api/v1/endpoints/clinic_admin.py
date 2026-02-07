@@ -18,9 +18,12 @@ from app.core.security.jwt import verify_token
 from app.application.services.clinic_service import ClinicService
 from app.application.services.user_service import UserService
 from app.application.dto.user_dto import UserCreateRequest
-from app.infrastructure.database.models import User, UserClinicRole
+from app.infrastructure.database.models import User, UserClinicRole, ClinicUserFeatureAccess
 
 router = APIRouter(prefix="/clinic-admin", tags=["Clinic Admin"])
+
+# Feature keys for per-user permissions (patients, work-queue, payroll, finance)
+SETTINGS_FEATURES = ("PATIENTS", "WORK_QUEUE", "PAYROLL", "FINANCE")
 
 
 def _primary_clinic_from_user(user: Any) -> tuple[Optional[str], Optional[str]]:
@@ -264,3 +267,137 @@ async def list_clinic_employees(clinic_id: str, skip: int = 0, limit: int = 50) 
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clinic not found")
     return result
+
+
+# --- Clinic settings: per-user feature access (which employee can access which feature) ---
+
+
+def _get_settings_sync(clinic_id: UUID) -> dict:
+    """Return list of users with their feature access. Each user: id, email, username, first_name, last_name, clinic_role, features."""
+    db = db_manager.get_session()
+    try:
+        clinic_svc = ClinicService(db)
+        users = clinic_svc.list_users_for_clinic(clinic_id)
+        access_rows = (
+            db.query(ClinicUserFeatureAccess)
+            .filter(
+                ClinicUserFeatureAccess.clinic_id == clinic_id,
+                ClinicUserFeatureAccess.is_deleted == False,
+            )
+            .all()
+        )
+        access_by_user: dict[str, dict[str, bool]] = {}
+        for r in access_rows:
+            uid = str(r.user_id)
+            if uid not in access_by_user:
+                access_by_user[uid] = {feat: True for feat in SETTINGS_FEATURES}
+            if r.feature_key in access_by_user[uid]:
+                access_by_user[uid][r.feature_key] = bool(r.allowed)
+        out_users = []
+        for u in users:
+            uid = u.get("id") or ""
+            features = access_by_user.get(uid) or {feat: True for feat in SETTINGS_FEATURES}
+            out_users.append({
+                "id": uid,
+                "email": u.get("email") or "",
+                "username": u.get("username") or "",
+                "first_name": u.get("first_name"),
+                "last_name": u.get("last_name"),
+                "clinic_role": u.get("clinic_role") or "",
+                "features": features,
+            })
+        return {"users": out_users}
+    finally:
+        db.close()
+
+
+def _put_settings_sync(clinic_id: UUID, body: dict) -> dict:
+    """Update per-user feature access. Body: { "users": [ { "user_id": "...", "features": { "FINANCE": true, ... } }, ... ] } or { "user_id_1": { "FINANCE": true, ... }, ... }."""
+    db = db_manager.get_session()
+    try:
+        clinic_svc = ClinicService(db)
+        clinic_users = {u["id"] for u in clinic_svc.list_users_for_clinic(clinic_id)}
+        users_payload = body.get("users")
+        if isinstance(users_payload, list):
+            for item in users_payload:
+                uid = item.get("user_id") or item.get("id")
+                if not uid or str(uid) not in clinic_users:
+                    continue
+                feats = item.get("features")
+                if not isinstance(feats, dict):
+                    continue
+                for feature in SETTINGS_FEATURES:
+                    if feature not in feats:
+                        continue
+                    allowed = bool(feats[feature])
+                    row = (
+                        db.query(ClinicUserFeatureAccess)
+                        .filter(
+                            ClinicUserFeatureAccess.clinic_id == clinic_id,
+                            ClinicUserFeatureAccess.user_id == UUID(uid),
+                            ClinicUserFeatureAccess.feature_key == feature,
+                            ClinicUserFeatureAccess.is_deleted == False,
+                        )
+                        .first()
+                    )
+                    if row:
+                        row.allowed = allowed
+                    else:
+                        db.add(ClinicUserFeatureAccess(
+                            clinic_id=clinic_id,
+                            user_id=UUID(uid),
+                            feature_key=feature,
+                            allowed=allowed,
+                        ))
+        else:
+            for uid, feats in (body or {}).items():
+                if uid in ("users",) or not isinstance(feats, dict):
+                    continue
+                try:
+                    uuuid = UUID(uid)
+                except ValueError:
+                    continue
+                if uid not in clinic_users:
+                    continue
+                for feature in SETTINGS_FEATURES:
+                    if feature not in feats:
+                        continue
+                    allowed = bool(feats[feature])
+                    row = (
+                        db.query(ClinicUserFeatureAccess)
+                        .filter(
+                            ClinicUserFeatureAccess.clinic_id == clinic_id,
+                            ClinicUserFeatureAccess.user_id == uuuid,
+                            ClinicUserFeatureAccess.feature_key == feature,
+                            ClinicUserFeatureAccess.is_deleted == False,
+                        )
+                        .first()
+                    )
+                    if row:
+                        row.allowed = allowed
+                    else:
+                        db.add(ClinicUserFeatureAccess(
+                            clinic_id=clinic_id,
+                            user_id=uuuid,
+                            feature_key=feature,
+                            allowed=allowed,
+                        ))
+        db.commit()
+        return _get_settings_sync(clinic_id)
+    finally:
+        db.close()
+
+
+@router.get("/settings")
+async def get_clinic_settings(ctx: ClinicAdminContext = Depends(get_clinic_admin_context)) -> dict:
+    """Get users and their feature access for the current clinic. Used by Settings page."""
+    return await asyncio.to_thread(_get_settings_sync, ctx.clinic_id)
+
+
+@router.put("/settings")
+async def put_clinic_settings(
+    body: dict,
+    ctx: ClinicAdminContext = Depends(get_clinic_admin_context),
+) -> dict:
+    """Update per-user feature access. Body: { "users": [ { "user_id", "features": { "FINANCE": true, ... } }, ... ] } or { "user_id": { "FINANCE": true, ... }, ... }."""
+    return await asyncio.to_thread(_put_settings_sync, ctx.clinic_id, body)

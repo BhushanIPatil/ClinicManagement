@@ -19,7 +19,6 @@ from app.core.database import get_async_db
 
 from app.infrastructure.database.models.appointment import Appointment
 from app.infrastructure.database.models.patient import Patient
-from app.infrastructure.database.models.invoice import Invoice
 from app.infrastructure.database.models.payment import Payment
 from app.infrastructure.database.models.work_queue import WorkQueue
 from app.infrastructure.database.models.doctor import Doctor
@@ -88,7 +87,7 @@ class DashboardService:
         total_patients = await self._get_total_patients()
         appointments_today = await self._get_total_appointments_today()
         revenue_today = await self._get_total_revenue_today()
-        pending_invoices = await self._get_pending_invoices()
+        pending_payments = await self._get_pending_payments_count()
         active_doctors = await self._get_active_doctors()
         pending_queue = await self._get_pending_work_queue()
         
@@ -120,9 +119,9 @@ class DashboardService:
                 icon="dollar-sign",
                 color="green"
             ),
-            "pending_invoices": StatCardDTO(
-                title="Pending Invoices",
-                value=pending_invoices,
+            "pending_payments": StatCardDTO(
+                title="Pending Payments",
+                value=pending_payments,
                 icon="file-text",
                 color="orange"
             ),
@@ -345,9 +344,9 @@ class DashboardService:
                 icon="dollar-sign",
                 color="green"
             ),
-            "pending_invoices": StatCardDTO(
-                title="Pending Invoices",
-                value=await self._get_pending_invoices(),
+            "pending_payments": StatCardDTO(
+                title="Pending Payments",
+                value=await self._get_pending_payments_count(),
                 icon="file-text",
                 color="orange"
             ),
@@ -360,8 +359,8 @@ class DashboardService:
         }
 
         summary_counts = [
-            SummaryCountDTO(label="Paid Invoices", count=await self._get_paid_invoices_month(this_month_start), icon="check"),
-            SummaryCountDTO(label="Pending Payments", count=await self._get_pending_payments(), icon="clock"),
+            SummaryCountDTO(label="Paid Payments (month)", count=await self._get_paid_payments_month(this_month_start), icon="check"),
+            SummaryCountDTO(label="Pending Payments", count=await self._get_pending_payments_count(), icon="clock"),
         ]
 
         trends = [
@@ -486,13 +485,13 @@ class DashboardService:
         )
         return Decimal(str(result.scalar() or 0))
 
-    async def _get_pending_invoices(self) -> int:
-        """Get pending invoices count."""
+    async def _get_pending_payments_count(self) -> int:
+        """Get pending payments count."""
         result = await self.db.execute(
-            select(func.count(Invoice.id)).where(
+            select(func.count(Payment.id)).where(
                 and_(
-                    Invoice.status.in_(["DRAFT", "PENDING", "SENT"]),
-                    Invoice.is_deleted == False
+                    Payment.status.in_(["PENDING", "PROCESSING"]),
+                    Payment.is_deleted == False
                 )
             )
         )
@@ -829,16 +828,16 @@ class DashboardService:
             for apt in appointments
         ]
 
-    async def _get_paid_invoices_month(self, month_start: date) -> int:
-        """Get paid invoices for month."""
+    async def _get_paid_payments_month(self, month_start: date) -> int:
+        """Get completed payments count for month."""
         month_end = date(month_start.year, month_start.month + 1, 1) - timedelta(days=1) if month_start.month < 12 else date(month_start.year + 1, 1, 1) - timedelta(days=1)
         result = await self.db.execute(
-            select(func.count(Invoice.id)).where(
+            select(func.count(Payment.id)).where(
                 and_(
-                    func.cast(Invoice.invoice_date, text) >= str(month_start),
-                    func.cast(Invoice.invoice_date, text) <= str(month_end),
-                    Invoice.status == "PAID",
-                    Invoice.is_deleted == False
+                    func.cast(Payment.payment_date, text) >= str(month_start),
+                    func.cast(Payment.payment_date, text) <= str(month_end),
+                    Payment.status == "COMPLETED",
+                    Payment.is_deleted == False
                 )
             )
         )

@@ -137,6 +137,13 @@ app.include_router(
     prefix="/api/v1",
 )
 
+# My Tasks (personal tasks per user)
+from app.api.v1.endpoints import my_tasks
+app.include_router(
+    my_tasks.router,
+    prefix="/api/v1",
+)
+
 # Finance & Billing routes
 from app.api.v1.endpoints import finance
 app.include_router(

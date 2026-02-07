@@ -4,16 +4,17 @@ Authentication API Endpoints
 This module provides authentication endpoints for user login, registration, and token management.
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Header
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Any, Optional
 from datetime import timedelta
+from uuid import UUID
 import asyncio
 
 from app.core.config import settings
 from app.core.database import db_manager
-from app.core.security.jwt import create_access_token
+from app.core.security.jwt import create_access_token, verify_token
 from app.application.services.user_service import UserService
 from app.application.dto.user_dto import (
     UserCreateRequest,
@@ -250,6 +251,108 @@ async def get_current_user() -> Any:
         "message": "Implement JWT authentication to get current user",
         "hint": "Pass Authorization: Bearer <token> header"
     }
+
+
+# Feature keys (must match clinic_admin.SETTINGS_FEATURES)
+FEATURE_KEYS = ("FINANCE", "PATIENTS", "WORK_QUEUE", "PAYROLL")
+
+
+def _get_feature_access_sync(user_id: UUID, primary_clinic_id: Optional[str], role_names: list) -> dict:
+    """Return { FINANCE: bool, ... } for this user at primary clinic. CLINIC_ADMIN gets all True. Else from clinic_user_feature_access; no rows = all True (backward compat)."""
+    if not primary_clinic_id:
+        return {k: False for k in FEATURE_KEYS}
+    if "CLINIC_ADMIN" in [r.upper() for r in role_names]:
+        return {k: True for k in FEATURE_KEYS}
+    try:
+        cid = UUID(primary_clinic_id)
+    except ValueError:
+        return {k: False for k in FEATURE_KEYS}
+    db = db_manager.get_session()
+    try:
+        from app.infrastructure.database.models import ClinicUserFeatureAccess
+        rows = (
+            db.query(ClinicUserFeatureAccess)
+            .filter(
+                ClinicUserFeatureAccess.clinic_id == cid,
+                ClinicUserFeatureAccess.user_id == user_id,
+                ClinicUserFeatureAccess.is_deleted == False,
+            )
+            .all()
+        )
+        if not rows:
+            return {k: True for k in FEATURE_KEYS}
+        allowed_features = {r.feature_key for r in rows if r.allowed}
+        return {k: k in allowed_features for k in FEATURE_KEYS}
+    finally:
+        db.close()
+
+
+@router.get("/me/feature-access")
+async def get_my_feature_access(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> dict:
+    """
+    Return feature access for the current user (per-user permissions at primary clinic).
+    CLINIC_ADMIN gets all True. Others: from clinic_user_feature_access; no rows = all True.
+    Returns: { "FINANCE": bool, "PATIENTS": bool, "WORK_QUEUE": bool, "PAYROLL": bool }
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = authorization.replace("Bearer ", "", 1).strip()
+    payload = verify_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        user_id = UUID(payload["sub"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    from app.infrastructure.database.models import User, UserClinicRole
+    from sqlalchemy.orm import joinedload
+    db = db_manager.get_session()
+    try:
+        user = (
+            db.query(User)
+            .options(
+                joinedload(User.clinic_role_assignments).options(
+                    joinedload(UserClinicRole.role),
+                    joinedload(UserClinicRole.clinic),
+                ),
+            )
+            .filter(User.id == user_id, User.is_deleted == False)
+            .first()
+        )
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        primary_clinic_id, _ = _primary_clinic_from_user(user)
+        assignments = getattr(user, "clinic_role_assignments") or []
+        role_names = []
+        for a in assignments:
+            clinic = getattr(a, "clinic", None)
+            if clinic and str(clinic.id) == primary_clinic_id:
+                r = getattr(getattr(a, "role", None), "name", None)
+                if r:
+                    role_names.append(r)
+        return await asyncio.to_thread(
+            _get_feature_access_sync, user_id, primary_clinic_id, role_names
+        )
+    finally:
+        db.close()
 
 
 @router.post("/logout")
